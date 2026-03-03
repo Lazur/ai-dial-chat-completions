@@ -47,6 +47,40 @@ class CustomDialClient(BaseClient):
         print(content)
         return Message(Role.AI, content)
 
+    def _get_content_snippet(self, line: str) -> str:
+        """Extract content from a single SSE data line.
+        
+        Args:
+            line: Raw line from SSE stream
+            
+        Returns:
+            Extracted content string, or empty string if no content found
+        """
+        # Skip lines that don't start with "data: "
+        if not line.startswith("data: "):
+            return ""
+        
+        # Strip "data: " prefix (6 characters)
+        data = line[6:]
+        
+        # Skip the [DONE] marker
+        if data == "[DONE]":
+            return ""
+        
+        try:
+            # Parse JSON chunk
+            chunk_json = json.loads(data)
+            
+            # Navigate to content: choices[0].delta.content
+            if chunk_json.get("choices") and chunk_json["choices"][0].get("delta"):
+                content = chunk_json["choices"][0]["delta"].get("content", "")
+                return content
+        except (json.JSONDecodeError, KeyError, IndexError):
+            # If parsing fails, return empty string
+            pass
+        
+        return ""
+
     async def stream_completion(self, messages: list[Message]) -> Message:
         # Create headers with api-key and Content-Type
         headers = {
@@ -81,21 +115,11 @@ class CustomDialClient(BaseClient):
                     # Debug: print raw chunk
                     # print(f"[DEBUG] Raw chunk: {line}")
                     
-                    # Check if line starts with "data: "
-                    if line.startswith("data: "):
-                        data = line[6:]  # Strip "data: " prefix (6 chars)
-                        
-                        # Skip the final [DONE] marker
-                        if data == "[DONE]":
-                            continue
-                        
-                        # Parse JSON and extract content
-                        chunk_json = json.loads(data)
-                        if chunk_json.get("choices") and chunk_json["choices"][0].get("delta"):
-                            content = chunk_json["choices"][0]["delta"].get("content", "")
-                            if content:
-                                print(content, end="", flush=True)
-                                contents.append(content)
+                    # Extract content using helper method
+                    content = self._get_content_snippet(line)
+                    if content:
+                        print(content, end="", flush=True)
+                        contents.append(content)
         
         # Print empty row (end of streaming)
         print()
